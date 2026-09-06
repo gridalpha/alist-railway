@@ -5,10 +5,11 @@
 #    along with an empty `local/` beside it: AList's Local driver refuses a root
 #    folder that does not exist yet, so without this the first storage a deployer
 #    adds fails with "root folder ... not exists" and there is no shell to fix it.
-# 2. Selects Meilisearch as the search index the first time the deployment comes
-#    up, through AList's own admin API. AList keeps that choice in a settings
-#    row, so it is unreachable from the environment; without this step the
-#    Meilisearch service is provisioned, wired and never used.
+# 2. Selects Meilisearch as the search index, and turns on automatic index
+#    updates, the first time the deployment comes up — through AList's own admin
+#    API. AList keeps both in settings rows, so they are unreachable from the
+#    environment; without this step the Meilisearch service is provisioned,
+#    wired and never used.
 #
 # The step is guarded three ways so it can never revert an operator's choice: it
 # runs only while the setting still holds AList's shipped default ("none"), only
@@ -24,7 +25,7 @@ mkdir -p "$DATA_DIR" "$DATA_DIR/local"
 
 seed_search_index() {
   local base="http://127.0.0.1:${LOCAL_PORT}"
-  local i token item current
+  local i token items current payload
 
   # AList has to be serving before it can be configured through its own API.
   for i in $(seq 1 90); do
@@ -45,14 +46,17 @@ seed_search_index() {
     return 0
   fi
 
-  item=$(curl -fsS -m 10 "$base/api/admin/setting/get?key=search_index" \
+  # Read the whole settings row back and edit only its value: AList's save
+  # endpoint replaces the record, so posting a bare {key,value} pair would blank
+  # the type, group and option list the admin UI renders from.
+  items=$(curl -fsS -m 10 "$base/api/admin/setting/get?keys=search_index,auto_update_index" \
     -H "Authorization: $token" 2>/dev/null | jq -c '.data // empty')
-  if [ -z "${item:-}" ]; then
-    echo "[railway] search index: could not read the search_index setting" >&2
+  if [ -z "${items:-}" ]; then
+    echo "[railway] search index: could not read the index settings" >&2
     return 0
   fi
 
-  current=$(printf '%s' "$item" | jq -r '.value')
+  current=$(printf '%s' "$items" | jq -r '.[] | select(.key == "search_index") | .value')
   if [ "$current" != "none" ]; then
     echo "[railway] search index: already set to '$current', leaving it alone" >&2
     : > "$MARKER"
@@ -62,12 +66,13 @@ seed_search_index() {
   # Saving runs AList's own hook, which creates the index on Meilisearch. It
   # fails while Meilisearch is still starting, and Railway orders no service
   # against another, so retry rather than giving up on the first attempt.
+  payload=$(printf '%s' "$items" | jq -c 'map(if .key == "search_index" then .value = "meilisearch" elif .key == "auto_update_index" then .value = "true" else . end)')
   for i in $(seq 1 30); do
     if curl -fsS -m 60 -X POST "$base/api/admin/setting/save" \
         -H "Authorization: $token" -H 'Content-Type: application/json' \
-        --data-binary "$(printf '%s' "$item" | jq -c '[.value = "meilisearch"]')" \
+        --data-binary "$payload" \
         2>/dev/null | jq -e '.code == 200' >/dev/null 2>&1; then
-      echo "[railway] search index: search_index set to meilisearch" >&2
+      echo "[railway] search index: search_index set to meilisearch, auto update on" >&2
       : > "$MARKER"
       return 0
     fi
