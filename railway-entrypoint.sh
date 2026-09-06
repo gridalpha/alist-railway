@@ -1,7 +1,10 @@
 #!/bin/bash
 # Railway wrapper for AList.
 #
-# 1. Makes sure the data directory exists before AList looks for config.json.
+# 1. Makes sure the data directory exists before AList looks for config.json,
+#    along with an empty `local/` beside it: AList's Local driver refuses a root
+#    folder that does not exist yet, so without this the first storage a deployer
+#    adds fails with "root folder ... not exists" and there is no shell to fix it.
 # 2. Selects Meilisearch as the search index the first time the deployment comes
 #    up, through AList's own admin API. AList keeps that choice in a settings
 #    row, so it is unreachable from the environment; without this step the
@@ -17,7 +20,7 @@ DATA_DIR=/opt/alist/data
 MARKER="$DATA_DIR/.railway-search-index-seeded"
 LOCAL_PORT="${HTTP_PORT:-5244}"
 
-mkdir -p "$DATA_DIR"
+mkdir -p "$DATA_DIR" "$DATA_DIR/local"
 
 seed_search_index() {
   local base="http://127.0.0.1:${LOCAL_PORT}"

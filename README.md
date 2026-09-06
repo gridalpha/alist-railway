@@ -12,7 +12,10 @@ never actually be used.
 
 `railway-entrypoint.sh` therefore:
 
-- creates `/opt/alist/data` before AList looks for `config.json` there, and
+- creates `/opt/alist/data` before AList looks for `config.json` there, plus
+  an empty `/opt/alist/data/local` for the deployment's first Local storage —
+  AList's Local driver refuses a root folder that does not exist, and the
+  container offers no shell in which to create one, and
 - once, in the background after the server is answering, signs in with the
   deployment's admin credentials and switches `search_index` to `meilisearch`.
 
